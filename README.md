@@ -7,6 +7,11 @@ sudo curl -L https://github.com/zerint/memtree/releases/latest/download/memtree 
 sudo chmod +x /usr/local/sbin/memtree
 ```
 
+## Usage
+```
+memtree | less -S
+```
+
 ## Example
 ```
 15584.82 MB - systemd (PID: 1, Memory: 15.17 MB, CMD: /sbin/init splash)
