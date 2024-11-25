@@ -1,6 +1,12 @@
 # MemTree
 Tool that allows to view the memory usage of the processes in a tree-like structure. It is useful to identify the memory usage of the processes and the memory usage of the children processes.
 
+## Installation
+```
+sudo curl -L https://github.com/zerint/memtree/releases/latest/download/memtree -o /usr/local/sbin/memtree
+sudo chmod +x /usr/local/sbin/memtree
+```
+
 ## Example
 ```
 15584.82 MB - systemd (PID: 1, Memory: 15.17 MB, CMD: /sbin/init splash)
