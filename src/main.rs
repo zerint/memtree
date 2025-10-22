@@ -24,6 +24,8 @@ struct AppState {
     expanded: HashSet<u32>,
     visible_nodes: Vec<TreeNode>,
     selected_index: usize,
+    scroll_offset: usize,
+    terminal_height: usize,
 }
 
 fn read_process_stat(pid: u32) -> Option<(String, u32)> {
@@ -167,12 +169,16 @@ impl AppState {
         let mut expanded = HashSet::new();
         expanded.insert(1);
 
+        let terminal_height = get_terminal_height().unwrap_or(24);
+
         let mut state = AppState {
             processes,
             process_info,
             expanded,
             visible_nodes: Vec::new(),
             selected_index: 0,
+            scroll_offset: 0,
+            terminal_height,
         };
 
         state.rebuild_visible_nodes();
@@ -228,62 +234,90 @@ impl AppState {
     fn move_up(&mut self) {
         if self.selected_index > 0 {
             self.selected_index -= 1;
+            self.adjust_scroll();
         }
     }
 
     fn move_down(&mut self) {
         if self.selected_index < self.visible_nodes.len().saturating_sub(1) {
             self.selected_index += 1;
+            self.adjust_scroll();
+        }
+    }
+
+    fn adjust_scroll(&mut self) {
+        // Reserve 3 lines for header
+        let content_height = self.terminal_height.saturating_sub(3);
+
+        if content_height == 0 {
+            return;
+        }
+
+        // Scroll up if selected is above viewport
+        if self.selected_index < self.scroll_offset {
+            self.scroll_offset = self.selected_index;
+        }
+
+        // Scroll down if selected is below viewport
+        if self.selected_index >= self.scroll_offset + content_height {
+            self.scroll_offset = self.selected_index.saturating_sub(content_height - 1);
         }
     }
 
     fn render(&self) {
-        // Clear screen
-        print!("\x1b[2J\x1b[H");
+        // Move cursor to home and clear screen (reduces flicker vs full clear)
+        print!("\x1b[H\x1b[J");
 
         println!("MemTree - Interactive Process Memory Viewer");
         println!("Arrow keys: navigate | Enter/Space: expand/collapse | q: quit\n");
 
-        for (index, node) in self.visible_nodes.iter().enumerate() {
-            if let Some(info) = self.process_info.get(&node.pid) {
-                let indent = "  ".repeat(node.level);
-                let is_selected = index == self.selected_index;
-                let selector = if is_selected { "> " } else { "  " };
+        let content_height = self.terminal_height.saturating_sub(3);
+        let end_index = (self.scroll_offset + content_height).min(self.visible_nodes.len());
 
-                let expand_indicator = if node.has_children {
-                    if self.expanded.contains(&node.pid) {
-                        "[-] "
+        // Only render visible portion based on scroll offset
+        for index in self.scroll_offset..end_index {
+            if let Some(node) = self.visible_nodes.get(index) {
+                if let Some(info) = self.process_info.get(&node.pid) {
+                    let indent = "  ".repeat(node.level);
+                    let is_selected = index == self.selected_index;
+                    let selector = if is_selected { "> " } else { "  " };
+
+                    let expand_indicator = if node.has_children {
+                        if self.expanded.contains(&node.pid) {
+                            "[-] "
+                        } else {
+                            "[+] "
+                        }
                     } else {
-                        "[+] "
+                        "    "
+                    };
+
+                    // Truncate cmdline if too long
+                    let max_cmd_len = 60;
+                    let cmd_display = if info.cmdline.len() > max_cmd_len {
+                        format!("{}...", &info.cmdline[..max_cmd_len])
+                    } else {
+                        info.cmdline.clone()
+                    };
+
+                    let line = format!(
+                        "{}{}{}{} MB - {} (PID: {}, Memory: {:.2} MB, CMD: {})",
+                        selector,
+                        indent,
+                        expand_indicator,
+                        info.total_memory_mb,
+                        info.name,
+                        node.pid,
+                        info.memory_mb,
+                        cmd_display
+                    );
+
+                    // Clear to end of line to avoid artifacts
+                    if is_selected {
+                        print!("\x1b[7m{}\x1b[K\x1b[0m\n", line); // Invert colors + clear EOL
+                    } else {
+                        print!("{}\x1b[K\n", line); // Clear to end of line
                     }
-                } else {
-                    "    "
-                };
-
-                // Truncate cmdline if too long
-                let max_cmd_len = 60;
-                let cmd_display = if info.cmdline.len() > max_cmd_len {
-                    format!("{}...", &info.cmdline[..max_cmd_len])
-                } else {
-                    info.cmdline.clone()
-                };
-
-                let line = format!(
-                    "{}{}{}{} MB - {} (PID: {}, Memory: {:.2} MB, CMD: {})",
-                    selector,
-                    indent,
-                    expand_indicator,
-                    info.total_memory_mb,
-                    info.name,
-                    node.pid,
-                    info.memory_mb,
-                    cmd_display
-                );
-
-                if is_selected {
-                    println!("\x1b[7m{}\x1b[0m", line); // Invert colors for selected line
-                } else {
-                    println!("{}", line);
                 }
             }
         }
@@ -367,6 +401,39 @@ fn disable_raw_mode() -> io::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(unix)]
+fn get_terminal_height() -> Option<usize> {
+    use std::os::raw::{c_int, c_ushort};
+
+    #[repr(C)]
+    struct Winsize {
+        ws_row: c_ushort,
+        ws_col: c_ushort,
+        ws_xpixel: c_ushort,
+        ws_ypixel: c_ushort,
+    }
+
+    extern "C" {
+        fn ioctl(fd: c_int, request: c_int, winsize: *mut Winsize) -> c_int;
+    }
+
+    const TIOCGWINSZ: c_int = 0x5413;
+
+    unsafe {
+        let mut winsize: Winsize = std::mem::zeroed();
+        if ioctl(1, TIOCGWINSZ, &mut winsize) == 0 {
+            Some(winsize.ws_row as usize)
+        } else {
+            None
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn get_terminal_height() -> Option<usize> {
+    None
 }
 
 fn run_interactive() -> io::Result<()> {
