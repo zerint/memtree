@@ -1,14 +1,50 @@
 # MemTree
-Tool that allows to view the memory usage of the processes in a tree-like structure. It is useful to identify the memory usage of the processes and the memory usage of the children processes.
+
+A fast, zero-dependency Linux memory visualization tool that displays process memory usage in a tree-like structure. Now rewritten in Rust for improved performance and lower memory footprint!
+
+## Features
+
+- Hierarchical process tree visualization
+- Shows individual and total memory usage (including all child processes)
+- Sorts processes by total memory consumption
+- Zero external dependencies (reads directly from `/proc`)
+- Fast and memory-efficient
 
 ## Installation
-```
+
+### Pre-built Binary
+```bash
 sudo curl -L https://github.com/zerint/memtree/releases/latest/download/memtree -o /usr/local/sbin/memtree
 sudo chmod +x /usr/local/sbin/memtree
 ```
 
-## Usage
+### Build from Source (Rust)
+
+```bash
+# Clone the repository
+git clone https://github.com/zerint/memtree.git
+cd memtree
+
+# Build release binary
+cargo build --release
+
+# Install system-wide (optional)
+sudo cp target/release/memtree /usr/local/bin/memtree
 ```
+
+### Python Version (Legacy)
+
+The original Python version is still available in `memtree.py`:
+
+```bash
+# Requires Python 3.12+ and psutil
+poetry install
+poetry run python memtree.py
+```
+
+## Usage
+
+```bash
 memtree | less -S
 ```
 

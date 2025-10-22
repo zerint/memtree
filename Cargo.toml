@@ -1,0 +1,13 @@
+[package]
+name = "memtree"
+version = "0.2.0"
+edition = "2021"
+authors = ["zerint <zerint@github.com>"]
+license = "GPL-3.0"
+description = "Linux memory usage visualization tool"
+
+[[bin]]
+name = "memtree"
+path = "src/main.rs"
+
+[dependencies]
