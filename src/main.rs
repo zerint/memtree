@@ -24,8 +24,11 @@ struct AppState {
     expanded: HashSet<u32>,
     visible_nodes: Vec<TreeNode>,
     selected_index: usize,
+    previous_selected_index: usize,
     scroll_offset: usize,
+    previous_scroll_offset: usize,
     terminal_height: usize,
+    needs_full_redraw: bool,
 }
 
 fn read_process_stat(pid: u32) -> Option<(String, u32)> {
@@ -177,8 +180,11 @@ impl AppState {
             expanded,
             visible_nodes: Vec::new(),
             selected_index: 0,
+            previous_selected_index: 0,
             scroll_offset: 0,
+            previous_scroll_offset: 0,
             terminal_height,
+            needs_full_redraw: true,
         };
 
         state.rebuild_visible_nodes();
@@ -188,6 +194,7 @@ impl AppState {
     fn rebuild_visible_nodes(&mut self) {
         self.visible_nodes.clear();
         self.build_visible_nodes_recursive(1, 0, &mut HashSet::new());
+        self.needs_full_redraw = true;
     }
 
     fn build_visible_nodes_recursive(&mut self, pid: u32, level: usize, visited: &mut HashSet<u32>) {
@@ -233,6 +240,8 @@ impl AppState {
 
     fn move_up(&mut self) {
         if self.selected_index > 0 {
+            self.previous_selected_index = self.selected_index;
+            self.previous_scroll_offset = self.scroll_offset;
             self.selected_index -= 1;
             self.adjust_scroll();
         }
@@ -240,6 +249,8 @@ impl AppState {
 
     fn move_down(&mut self) {
         if self.selected_index < self.visible_nodes.len().saturating_sub(1) {
+            self.previous_selected_index = self.selected_index;
+            self.previous_scroll_offset = self.scroll_offset;
             self.selected_index += 1;
             self.adjust_scroll();
         }
@@ -256,16 +267,72 @@ impl AppState {
         // Scroll up if selected is above viewport
         if self.selected_index < self.scroll_offset {
             self.scroll_offset = self.selected_index;
+            self.needs_full_redraw = true; // Need full redraw when scrolling
         }
 
         // Scroll down if selected is below viewport
-        if self.selected_index >= self.scroll_offset + content_height {
+        else if self.selected_index >= self.scroll_offset + content_height {
             self.scroll_offset = self.selected_index.saturating_sub(content_height - 1);
+            self.needs_full_redraw = true; // Need full redraw when scrolling
         }
     }
 
-    fn render(&self) {
-        // Move cursor to home and clear screen (reduces flicker vs full clear)
+    fn format_line(&self, index: usize, is_selected: bool) -> Option<String> {
+        let node = self.visible_nodes.get(index)?;
+        let info = self.process_info.get(&node.pid)?;
+
+        let indent = "  ".repeat(node.level);
+        let selector = if is_selected { "> " } else { "  " };
+
+        let expand_indicator = if node.has_children {
+            if self.expanded.contains(&node.pid) {
+                "[-] "
+            } else {
+                "[+] "
+            }
+        } else {
+            "    "
+        };
+
+        // Truncate cmdline if too long
+        let max_cmd_len = 60;
+        let cmd_display = if info.cmdline.len() > max_cmd_len {
+            format!("{}...", &info.cmdline[..max_cmd_len])
+        } else {
+            info.cmdline.clone()
+        };
+
+        let line = format!(
+            "{}{}{}{} MB - {} (PID: {}, Memory: {:.2} MB, CMD: {})",
+            selector,
+            indent,
+            expand_indicator,
+            info.total_memory_mb,
+            info.name,
+            node.pid,
+            info.memory_mb,
+            cmd_display
+        );
+
+        Some(line)
+    }
+
+    fn render_line_at_position(&self, screen_row: usize, index: usize, is_selected: bool) {
+        if let Some(line) = self.format_line(index, is_selected) {
+            // Move cursor to specific row (row 1 is first content row, after 3-line header)
+            print!("\x1b[{}H", screen_row + 4); // +4 to account for header (3 lines + 1-indexed)
+
+            if is_selected {
+                print!("\x1b[7m{}\x1b[K\x1b[0m", line); // Invert colors + clear EOL
+            } else {
+                print!("{}\x1b[K", line); // Clear to end of line
+            }
+            io::stdout().flush().unwrap();
+        }
+    }
+
+    fn render_full(&self) {
+        // Clear screen and go to home
         print!("\x1b[H\x1b[J");
 
         println!("MemTree - Interactive Process Memory Viewer");
@@ -274,55 +341,42 @@ impl AppState {
         let content_height = self.terminal_height.saturating_sub(3);
         let end_index = (self.scroll_offset + content_height).min(self.visible_nodes.len());
 
-        // Only render visible portion based on scroll offset
+        // Render all visible lines
         for index in self.scroll_offset..end_index {
-            if let Some(node) = self.visible_nodes.get(index) {
-                if let Some(info) = self.process_info.get(&node.pid) {
-                    let indent = "  ".repeat(node.level);
-                    let is_selected = index == self.selected_index;
-                    let selector = if is_selected { "> " } else { "  " };
-
-                    let expand_indicator = if node.has_children {
-                        if self.expanded.contains(&node.pid) {
-                            "[-] "
-                        } else {
-                            "[+] "
-                        }
-                    } else {
-                        "    "
-                    };
-
-                    // Truncate cmdline if too long
-                    let max_cmd_len = 60;
-                    let cmd_display = if info.cmdline.len() > max_cmd_len {
-                        format!("{}...", &info.cmdline[..max_cmd_len])
-                    } else {
-                        info.cmdline.clone()
-                    };
-
-                    let line = format!(
-                        "{}{}{}{} MB - {} (PID: {}, Memory: {:.2} MB, CMD: {})",
-                        selector,
-                        indent,
-                        expand_indicator,
-                        info.total_memory_mb,
-                        info.name,
-                        node.pid,
-                        info.memory_mb,
-                        cmd_display
-                    );
-
-                    // Clear to end of line to avoid artifacts
-                    if is_selected {
-                        print!("\x1b[7m{}\x1b[K\x1b[0m\n", line); // Invert colors + clear EOL
-                    } else {
-                        print!("{}\x1b[K\n", line); // Clear to end of line
-                    }
+            let is_selected = index == self.selected_index;
+            if let Some(line) = self.format_line(index, is_selected) {
+                if is_selected {
+                    print!("\x1b[7m{}\x1b[K\x1b[0m\n", line);
+                } else {
+                    print!("{}\x1b[K\n", line);
                 }
             }
         }
 
         io::stdout().flush().unwrap();
+    }
+
+    fn render(&mut self) {
+        if self.needs_full_redraw {
+            self.render_full();
+            self.needs_full_redraw = false;
+            return;
+        }
+
+        // Selective update: only redraw the lines that changed
+        if self.previous_selected_index != self.selected_index {
+            // Unhighlight old selection (if visible)
+            if self.previous_selected_index >= self.scroll_offset {
+                let screen_row = self.previous_selected_index - self.scroll_offset;
+                self.render_line_at_position(screen_row, self.previous_selected_index, false);
+            }
+
+            // Highlight new selection (if visible)
+            if self.selected_index >= self.scroll_offset {
+                let screen_row = self.selected_index - self.scroll_offset;
+                self.render_line_at_position(screen_row, self.selected_index, true);
+            }
+        }
     }
 }
 
@@ -441,8 +495,8 @@ fn run_interactive() -> io::Result<()> {
 
     enable_raw_mode()?;
 
-    // Hide cursor
-    print!("\x1b[?25l");
+    // Enter alternate screen buffer and hide cursor
+    print!("\x1b[?1049h\x1b[?25l");
     io::stdout().flush()?;
 
     state.render();
@@ -482,10 +536,8 @@ fn run_interactive() -> io::Result<()> {
         }
     }
 
-    // Show cursor
-    print!("\x1b[?25h");
-    // Clear screen
-    print!("\x1b[2J\x1b[H");
+    // Exit alternate screen buffer and show cursor
+    print!("\x1b[?1049l\x1b[?25h");
     io::stdout().flush()?;
 
     disable_raw_mode()?;
