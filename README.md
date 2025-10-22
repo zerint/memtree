@@ -4,11 +4,13 @@ A fast, zero-dependency Linux memory visualization tool that displays process me
 
 ## Features
 
-- Hierarchical process tree visualization
-- Shows individual and total memory usage (including all child processes)
-- Sorts processes by total memory consumption
-- Zero external dependencies (reads directly from `/proc`)
-- Fast and memory-efficient
+- **Interactive TUI**: Navigate and explore processes with keyboard controls
+- **Collapsible tree structure**: Expand/collapse process branches to focus on what matters
+- **Hierarchical visualization**: See parent-child process relationships at a glance
+- **Memory aggregation**: Shows individual and total memory usage (including all child processes)
+- **Smart sorting**: Processes sorted by total memory consumption
+- **Zero external dependencies**: Reads directly from `/proc` - no crates needed!
+- **Fast and memory-efficient**: Compiled Rust binary with minimal overhead
 
 ## Installation
 
@@ -44,18 +46,34 @@ poetry run python memtree.py
 
 ## Usage
 
+Simply run `memtree` to launch the interactive viewer:
+
 ```bash
-memtree | less -S
+memtree
 ```
 
+### Interactive Controls
+
+- **Arrow keys (↑/↓)**: Navigate up and down through processes
+- **Enter or Space**: Expand/collapse the selected process to show/hide children
+- **q**: Quit the application
+
+### Visual Indicators
+
+- `>` : Selected process (highlighted)
+- `[-]` : Expanded node with children (press Enter to collapse)
+- `[+]` : Collapsed node with children (press Enter to expand)
+
 ## Example
+
 ```
-15584.82 MB - systemd (PID: 1, Memory: 15.17 MB, CMD: /sbin/init splash)
-  5277.44 MB - bash (PID: 138371, Memory: 3.50 MB, CMD: /bin/bash)
-    5273.94 MB - firefox (PID: 138374, Memory: 666.84 MB, CMD: /snap/firefox/5239/usr/lib/
-      615.24 MB - Isolated Web Co (PID: 139593, Memory: 615.24 MB, CMD: /snap/firefox/5239>
-      559.3 MB - Isolated Web Co (PID: 139155, Memory: 559.30 MB, CMD: /snap/firefox/5239/>
-      359.79 MB - WebExtensions (PID: 138649, Memory: 359.79 MB, CMD: /snap/firefox/5239/u>
-      283.6 MB - Isolated Web Co (PID: 825400, Memory: 283.60 MB, CMD: /snap/firefox/5239/>
-      ...
+MemTree - Interactive Process Memory Viewer
+Arrow keys: navigate | Enter/Space: expand/collapse | q: quit
+
+> [-] 383.33 MB - process_api (PID: 1, Memory: 12.76 MB, CMD: /process_api --addr...)
+    [-] 370.57 MB - sh (PID: 19, Memory: 3.72 MB, CMD: /bin/sh -c mkdir -p...)
+      [+] 366.85 MB - environment-man (PID: 21, Memory: 53.15 MB, CMD: /usr/local/bin...)
+        313.7 MB - claude (PID: 81, Memory: 296.79 MB, CMD: claude)
 ```
+
+The interface dynamically updates as you expand and collapse nodes, allowing you to drill down into memory-hungry process trees while keeping the overall view clean and manageable.
